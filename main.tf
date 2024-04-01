@@ -1,75 +1,93 @@
-# Définir le fournisseur Azure
+# Définition du fournisseur Azure
 provider "azurerm" {
-  version = "~> 3.70.0"
+  features {}
 }
 
-# Définir les variables
+# Définition des variables
+variable "resource_group_name" {
+  description = "Nom du groupe de ressources"
+  type        = string
+}
+
 variable "location" {
-  type = string
-  default = "southuk"
+  description = "Emplacement du réseau"
+  type        = string
+  default     = "southuk"
 }
 
-# Créer le réseau virtuel hub
-resource "azurerm_virtual_network" "hub" {
-  name = "hub-vnet"
-  location = var.location
-  address_space = ["10.0.0.0/16"]
+variable "hub_subnet_cidr" {
+  description = "CIDR pour le sous-réseau du hub"
+  type        = string
+  default     = "10.0.0.0/24"
+}
 
-  subnet {
-    name = "hub-subnet"
-    address_prefix = "10.0.1.0/24"
+variable "spoke_subnet_cidr" {
+  description = "CIDR pour les sous-réseaux des spokes"
+  type        = string
+  default     = "10.1.0.0/24"
+}
+
+# Création du groupe de ressources
+resource "azurerm_resource_group" "rg" {
+  name     = var.resource_group_name
+  location = var.location
+}
+
+# Création du réseau virtuel pour le hub
+resource "azurerm_virtual_network" "hub_vnet" {
+  name                = "hub-vnet"
+  address_space       = ["${var.hub_subnet_cidr}"]
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+# Création du sous-réseau pour le hub
+resource "azurerm_subnet" "hub_subnet" {
+  name                 = "hub-subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.hub_vnet.name
+  address_prefixes     = ["${var.hub_subnet_cidr}"]
+}
+
+# Création du réseau virtuel pour le spoke
+resource "azurerm_virtual_network" "spoke_vnet" {
+  name                = "spoke-vnet"
+  address_space       = ["${var.spoke_subnet_cidr}"]
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+# Création du sous-réseau pour le spoke
+resource "azurerm_subnet" "spoke_subnet" {
+  name                 = "spoke-subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.spoke_vnet.name
+  address_prefixes     = ["${var.spoke_subnet_cidr}"]
+}
+
+# Configuration des règles de sécurité (à compléter selon les besoins)
+# Par exemple, ici, nous autorisons tout le trafic au sein du réseau virtuel
+
+resource "azurerm_network_security_group" "hub_nsg" {
+  name                = "hub-nsg"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  security_rule {
+    name                       = "allow-all"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
   }
 }
 
-# Créer le réseau virtuel spoke 1
-resource "azurerm_virtual_network" "spoke_1" {
-  name = "spoke-1-vnet"
-  location = var.location
-  address_space = ["10.1.0.0/16"]
-
-  subnet {
-    name = "spoke-1-subnet"
-    address_prefix = "10.1.1.0/24"
-  }
-}
-
-# Créer le réseau virtuel spoke 2
-resource "azurerm_virtual_network" "spoke_2" {
-  name = "spoke-2-vnet"
-  location = var.location
-  address_space = ["10.2.0.0/16"]
-
-  subnet {
-    name = "spoke-2-subnet"
-    address_prefix = "10.2.1.0/24"
-  }
-}
-
-# Créer le peering de réseau virtuel entre le hub et spoke 1
-resource "azurerm_virtual_network_peering" "hub_spoke_1" {
-  name = "hub-spoke-1-peering"
-  virtual_network_name = azurerm_virtual_network.hub.name
-  remote_virtual_network_name = azurerm_virtual_network.spoke_1.name
-  allow_virtual_network_access = true
-}
-
-# Créer le peering de réseau virtuel entre le hub et spoke 2
-resource "azurerm_virtual_network_peering" "hub_spoke_2" {
-  name = "hub-spoke-2-peering"
-  virtual_network_name = azurerm_virtual_network.hub.name
-  remote_virtual_network_name = azurerm_virtual_network.spoke_2.name
-  allow_virtual_network_access = true
-}
-
-# Afficher les adresses IP des subnets
-output "hub_subnet_ip" {
-  value = azurerm_subnet.hub.address_prefix
-}
-
-output "spoke_1_subnet_ip" {
-  value = azurerm_subnet.spoke_1.address_prefix
-}
-
-output "spoke_2_subnet_ip" {
-  value = azurerm_subnet.spoke_2.address_prefix
+# Associer le groupe de sécurité au sous-réseau du hub
+resource "azurerm_subnet_network_security_group_association" "hub_nsg_association" {
+  subnet_id                 = azurerm_subnet.hub_subnet.id
+  network_security_group_id = azurerm_network_security_group.hub_nsg.id
 }
