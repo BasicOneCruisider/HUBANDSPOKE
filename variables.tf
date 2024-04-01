@@ -7,7 +7,7 @@ variable "resource_group_name" {
 variable "location" {
   description = "Emplacement du réseau"
   type        = string
-  default     = "southuk"
+  default     = "Uk South"
 }
 
 variable "hub_subnet_cidr" {
